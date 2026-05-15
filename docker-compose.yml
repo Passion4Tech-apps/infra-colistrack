@@ -1,0 +1,89 @@
+version: '3.9'
+
+services:
+
+  db:
+    image: postgres:16-alpine
+    container_name: colistrack_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${DB_NAME}
+      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_EXTERNAL_PORT}:5432"  # ex: 5433:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - colistrack_network
+
+  backend:
+    build:
+      context: ./be-colistrack
+      dockerfile: Dockerfile
+    container_name: colistrack_backend
+    restart: unless-stopped
+    env_file:
+      - ./be-colistrack/.env
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432  # ← port interne toujours 5432
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./be-colistrack:/app
+      - ./be-colistrack/media:/app/media
+      - ./be-colistrack/logs:/app/logs
+      - ./be-colistrack/staticfiles:/app/staticfiles
+      - ./backups:/home/cyrus/p4t/colistrack/backups
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - colistrack_network
+
+  frontend:
+    build:
+      context: ./fe-colistrack
+      dockerfile: Dockerfile
+    container_name: colistrack_frontend
+    restart: unless-stopped
+    env_file:
+      - ./fe-colistrack/.env
+    ports:
+      - "5000:3000"
+    depends_on:
+      - backend
+    networks:
+      - colistrack_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: colistrack_redis
+    restart: unless-stopped
+    networks:
+      - colistrack_network
+
+  uptime-kuma:
+    image: louislam/uptime-kuma:latest
+    container_name: uptime_kuma
+    restart: unless-stopped
+    volumes:
+      - uptime_kuma_data:/app/data
+    ports:
+      - "3001:3001"
+    networks:
+      - colistrack_network
+
+networks:
+  colistrack_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  uptime_kuma_data:
